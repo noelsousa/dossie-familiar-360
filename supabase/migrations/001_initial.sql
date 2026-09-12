@@ -11,11 +11,13 @@ create table if not exists public.families (
 create table if not exists public.family_members (
   id uuid primary key default gen_random_uuid(),
   family_id uuid not null references public.families(id) on delete cascade,
+  user_id uuid references auth.users(id) on delete cascade,
   name text not null,
   role text,
   phone text,
   email text,
   notes text,
+  is_responsible boolean not null default false,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
@@ -45,6 +47,7 @@ create table if not exists public.emergency_contacts (
 
 create index if not exists map_items_family_map_idx on public.map_items(family_id,map_key);
 create index if not exists family_members_family_idx on public.family_members(family_id);
+create index if not exists emergency_contacts_family_idx on public.emergency_contacts(family_id);
 
 alter table public.families enable row level security;
 alter table public.family_members enable row level security;
@@ -52,12 +55,49 @@ alter table public.map_items enable row level security;
 alter table public.emergency_contacts enable row level security;
 
 create or replace function public.is_family_member(target_family_id uuid)
-returns boolean language sql security definer stable set search_path = public as $$
+returns boolean
+language sql
+security definer
+stable
+set search_path = public
+as $$
   select exists (select 1 from public.families f where f.id = target_family_id and f.owner_id = auth.uid())
-  or exists (select 1 from public.family_members fm join public.families f on f.id=fm.family_id where fm.family_id=target_family_id and false);
+  or exists (select 1 from public.family_members fm where fm.family_id = target_family_id and fm.user_id = auth.uid());
 $$;
 
-create policy "owner can manage family" on public.families for all using (owner_id=auth.uid()) with check (owner_id=auth.uid());
-create policy "owner can manage members" on public.family_members for all using (public.is_family_member(family_id)) with check (public.is_family_member(family_id));
-create policy "owner can manage maps" on public.map_items for all using (public.is_family_member(family_id)) with check (public.is_family_member(family_id));
-create policy "owner can manage emergency contacts" on public.emergency_contacts for all using (public.is_family_member(family_id)) with check (public.is_family_member(family_id));
+drop policy if exists "owner can manage family" on public.families;
+drop policy if exists "owner can manage members" on public.family_members;
+drop policy if exists "owner can manage maps" on public.map_items;
+drop policy if exists "owner can manage emergency contacts" on public.emergency_contacts;
+drop policy if exists "family members can read family" on public.families;
+drop policy if exists "owners can insert family" on public.families;
+drop policy if exists "owners can update family" on public.families;
+drop policy if exists "owners can delete family" on public.families;
+drop policy if exists "family members can read members" on public.family_members;
+drop policy if exists "owners can manage members" on public.family_members;
+drop policy if exists "family members can read maps" on public.map_items;
+drop policy if exists "family members can insert maps" on public.map_items;
+drop policy if exists "family members can update maps" on public.map_items;
+drop policy if exists "family members can delete maps" on public.map_items;
+drop policy if exists "family members can read emergency contacts" on public.emergency_contacts;
+drop policy if exists "family members can insert emergency contacts" on public.emergency_contacts;
+drop policy if exists "family members can update emergency contacts" on public.emergency_contacts;
+drop policy if exists "family members can delete emergency contacts" on public.emergency_contacts;
+
+create policy "family members can read family" on public.families for select using (public.is_family_member(id));
+create policy "owners can insert family" on public.families for insert with check (owner_id=auth.uid());
+create policy "owners can update family" on public.families for update using (owner_id=auth.uid()) with check (owner_id=auth.uid());
+create policy "owners can delete family" on public.families for delete using (owner_id=auth.uid());
+
+create policy "family members can read members" on public.family_members for select using (public.is_family_member(family_id));
+create policy "owners can manage members" on public.family_members for all using (exists (select 1 from public.families f where f.id=family_id and f.owner_id=auth.uid())) with check (exists (select 1 from public.families f where f.id=family_id and f.owner_id=auth.uid()));
+
+create policy "family members can read maps" on public.map_items for select using (public.is_family_member(family_id));
+create policy "family members can insert maps" on public.map_items for insert with check (public.is_family_member(family_id));
+create policy "family members can update maps" on public.map_items for update using (public.is_family_member(family_id)) with check (public.is_family_member(family_id));
+create policy "family members can delete maps" on public.map_items for delete using (public.is_family_member(family_id));
+
+create policy "family members can read emergency contacts" on public.emergency_contacts for select using (public.is_family_member(family_id));
+create policy "family members can insert emergency contacts" on public.emergency_contacts for insert with check (public.is_family_member(family_id));
+create policy "family members can update emergency contacts" on public.emergency_contacts for update using (public.is_family_member(family_id)) with check (public.is_family_member(family_id));
+create policy "family members can delete emergency contacts" on public.emergency_contacts for delete using (public.is_family_member(family_id));
